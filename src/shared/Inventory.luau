@@ -1,15 +1,4 @@
 --!strict
---[[
-	THREAD-003: Inventory Module
-	
-	Complete inventory management system with items, shards, weapons,
-	weight tracking, slot management, and item templates.
-	
-	File: src/shared/Inventory.luau
-	Priority: HIGH (core gameplay system)
-	Complexity: High
-	Time Estimate: 4-5 hours
-]]
 
 local PlayerData = require(script.Parent.PlayerData)
 
@@ -22,21 +11,6 @@ local RARITY_WEIGHTS = {
 	Rare = 2.0,
 	Epic = 3.0,
 	Legendary = 5.0,
-}
-
-local ITEM_TEMPLATES = {
-	weapons = {
-		sword = { name = "Sword", weight = 3.0, type = "slash" },
-		axe = { name = "Axe", weight = 3.5, type = "slash" },
-		dagger = { name = "Dagger", weight = 1.0, type = "pierce" },
-		staff = { name = "Staff", weight = 2.5, type = "magic" },
-	},
-	shards = {
-		fire = { name = "Fire Shard", weight = 0.5, corruption = 15 },
-		ice = { name = "Ice Shard", weight = 0.5, corruption = 12 },
-		earth = { name = "Earth Shard", weight = 0.8, corruption = 18 },
-		wind = { name = "Wind Shard", weight = 0.3, corruption = 10 },
-	},
 }
 
 -- ============================================================
@@ -129,6 +103,34 @@ function Inventory.createShard(
 			maxDurability = 100,
 		},
 		slotIndex = 0,
+	}
+end
+
+-- NEW: Create actual Shard object for equipping
+function Inventory.createShardObject(
+	shardId: string,
+	name: string,
+	rarity: string,
+	corruption: number,
+	level: number
+): PlayerData.Shard
+	--!strict
+	if not RARITY_WEIGHTS[rarity] then
+		error("Invalid rarity: " .. rarity, 2)
+	end
+	
+	if corruption < 0 or corruption > 100 then
+		error("Corruption must be between 0 and 100", 2)
+	end
+	
+	return {
+		id = shardId,
+		name = name .. " Shard",
+		rarity = rarity,
+		corruption = corruption,
+		durability = 100,
+		maxDurability = 100,
+		level = level,
 	}
 end
 

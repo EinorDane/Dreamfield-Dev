@@ -177,12 +177,15 @@ function PlayerData.addExperience(profile: PlayerProfile, amount: number): ()
 	
 	profile.experience += amount
 	
-	local levelsGained = math.floor(profile.experience / 100)
-	if levelsGained > 0 then
-		profile.level += levelsGained
-		profile.tolerance = profile.level * 5
+	-- Calculate levels gained and reset experience counter
+	while profile.experience >= 100 do
+		profile.level += 1
+		profile.experience -= 100
 	end
+	
+	profile.tolerance = profile.level * 5
 end
+
 
 function PlayerData.setCorruption(profile: PlayerProfile, amount: number): ()
 	--!strict
@@ -211,6 +214,7 @@ function PlayerData.updateCorruptionPool(profile: PlayerProfile): ()
 	end
 	
 	profile.corruptionPool = totalCorruption
+	profile.tolerance = profile.level * 5  -- ADD THIS LINE
 end
 
 function PlayerData.addStamina(profile: PlayerProfile, amount: number): ()
@@ -281,30 +285,38 @@ function PlayerData.getInventoryItem(profile: PlayerProfile, slotIndex: number):
 	return profile.inventory[slotIndex]
 end
 
-function PlayerData.equipShard(profile: PlayerProfile, shardSlot: number, shard: Shard): boolean
+function PlayerData.equipShard(profile: PlayerProfile, shard: Shard, slot: number): boolean
 	--!strict
-	if shardSlot < 1 or shardSlot > #profile.equippedShards then
+	if slot < 1 or slot > 5 then
 		error("Shard slot out of range", 2)
 	end
 	
-	profile.equippedShards[shardSlot] = shard
+	if not shard then
+		error("Shard is nil", 2)
+	end
+	
+	profile.equippedShards[slot] = shard
 	PlayerData.updateCorruptionPool(profile)
 	
 	return true
 end
 
-function PlayerData.unequipShard(profile: PlayerProfile, shardSlot: number): Shard?
+
+function PlayerData.unequipShard(profile: PlayerProfile, slot: number): Shard?
 	--!strict
-	if shardSlot < 1 or shardSlot > #profile.equippedShards then
-		error("Shard slot out of range", 2)
+	if slot < 1 or slot > 5 then
+		return nil
 	end
 	
-	local shard = profile.equippedShards[shardSlot]
-	profile.equippedShards[shardSlot] = nil
-	PlayerData.updateCorruptionPool(profile)
+	local shard = profile.equippedShards[slot]
+	if shard then
+		profile.equippedShards[slot] = nil
+		PlayerData.updateCorruptionPool(profile)
+	end
 	
 	return shard
 end
+
 
 function PlayerData.changeWorld(profile: PlayerProfile, world: string): ()
 	--!strict
