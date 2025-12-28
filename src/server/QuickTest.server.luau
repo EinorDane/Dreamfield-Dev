@@ -645,16 +645,16 @@ TestFramework.describe("Corruption: Full Metrics (Integration)", function()
 		local profile = PlayerData.createProfile()
 		profile.level = 10
 		profile.equippedShards = {
-			Inventory.createShardObject("fire_1", "Fire", "Rare", 30, 3),
+			Inventory.createShardObject("fire_1", "Fire", "Rare", 20, 3),
 			nil, nil, nil, nil,
 		}
 		
 		local metrics = CorruptionCalc.calculateMetrics(profile)
 		
 		TestFramework.assertEqual(metrics.tolerance, 50, "Level 10 tolerance = 50")
-		TestFramework.assertEqual(metrics.corruptionPool, 30, "One 30-corruption shard")
-		TestFramework.assertEqual(metrics.overloaded, false, "30 < 100 not overloaded")
-		TestFramework.assertEqual(metrics.riskLevel, "Low", "30% = Low risk")
+		TestFramework.assertEqual(metrics.corruptionPool, 20, "One 20-corruption shard")
+		TestFramework.assertEqual(metrics.overloaded, false, "20 < 100 not overloaded")
+		TestFramework.assertEqual(metrics.riskLevel, "Low", "20% = Low risk")
 		TestFramework.assertGreater(metrics.damageMultiplier, 0.8, "Damage > 0.8x")
 		TestFramework.assertLess(metrics.damageMultiplier, 1.0, "Damage < 1.0x")
 	end)
