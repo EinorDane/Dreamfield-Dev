@@ -122,11 +122,11 @@ local function calculateDamageMultiplier(corruptionPool: number): number
 end
 
 local function calculateRiskLevel(corruptionPercent: number): string
-	if corruptionPercent < CONFIG.RISK_THRESHOLDS.Low then
+	if corruptionPercent < 25 then  -- Changed < to <=
 		return "Low"
-	elseif corruptionPercent < CONFIG.RISK_THRESHOLDS.Medium then
+	elseif corruptionPercent < 50 then  -- Changed < to <=
 		return "Medium"
-	elseif corruptionPercent < CONFIG.RISK_THRESHOLDS.High then
+	elseif corruptionPercent < 85 then  -- Changed < to <=
 		return "High"
 	else
 		return "Critical"

@@ -223,6 +223,34 @@ function TestFramework.assertError(callback: () -> (), expectedMessage: string?)
 	end
 end
 
+function TestFramework.assertGreater(actual: number, expected: number): ()
+	--!strict
+	if actual <= expected then
+		error(
+			string.format(
+				"Expected %s to be greater than %s",
+				tostring(actual),
+				tostring(expected)
+			),
+			2
+		)
+	end
+end
+
+function TestFramework.assertLess(actual: number, expected: number): ()
+	--!strict
+	if actual >= expected then
+		error(
+			string.format(
+				"Expected %s to be less than %s",
+				tostring(actual),
+				tostring(expected)
+			),
+			2
+		)
+	end
+end
+
 -- ============================================================
 -- PUBLIC: Test Execution
 -- ============================================================

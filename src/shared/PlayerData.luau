@@ -186,7 +186,6 @@ function PlayerData.addExperience(profile: PlayerProfile, amount: number): ()
 	profile.tolerance = profile.level * 5
 end
 
-
 function PlayerData.setCorruption(profile: PlayerProfile, amount: number): ()
 	--!strict
 	if amount < 0 or amount > profile.maxCorruption then
@@ -214,7 +213,7 @@ function PlayerData.updateCorruptionPool(profile: PlayerProfile): ()
 	end
 	
 	profile.corruptionPool = totalCorruption
-	profile.tolerance = profile.level * 5  -- ADD THIS LINE
+	profile.tolerance = profile.level * 5
 end
 
 function PlayerData.addStamina(profile: PlayerProfile, amount: number): ()
@@ -316,7 +315,6 @@ function PlayerData.unequipShard(profile: PlayerProfile, slot: number): Shard?
 	
 	return shard
 end
-
 
 function PlayerData.changeWorld(profile: PlayerProfile, world: string): ()
 	--!strict
