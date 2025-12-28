@@ -16,14 +16,14 @@
 --! Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 --! Modules
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Constants = require(ReplicatedStorage.Shared.Constants)
-local PlayerData = require(ReplicatedStorage.Shared.PlayerData)
-local Stamina = require(ReplicatedStorage.Shared.Stamina)
-local CorruptionCalc = require(ReplicatedStorage.Shared.CorruptionCalc)
-local CombatRemotes = require(ReplicatedStorage.Shared.CombatRemotes)
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local PlayerData = require(Shared:WaitForChild("PlayerData"))
+local Stamina = require(Shared:WaitForChild("Stamina"))
+local CorruptionCalc = require(Shared:WaitForChild("CorruptionCalc"))
+local CombatRemotes = require(Shared:WaitForChild("CombatRemotes"))
 
 --! CONFIG
 local CONFIG = {
@@ -349,19 +349,19 @@ local function handleDash(
 end
 
 --! SETUP REMOTES
-CombatRemotes.Attack:SetCallback(function(player: Player, targetPlayer: Player, skillName: string)
+CombatRemotes.Attack:OnInvoke(function(player: Player, targetPlayer: Player, skillName: string)
 	return handleAttack(player, targetPlayer, skillName)
 end)
 
-CombatRemotes.Parry:SetCallback(function(player: Player, attacker: Player, incomingDamage: number)
+CombatRemotes.Parry:OnInvoke(function(player: Player, attacker: Player, incomingDamage: number)
 	return handleParry(player, attacker, incomingDamage)
 end)
 
-CombatRemotes.Block:SetCallback(function(player: Player, incomingDamage: number, deltaTime: number)
+CombatRemotes.Block:OnInvoke(function(player: Player, incomingDamage: number, deltaTime: number)
 	return handleBlock(player, incomingDamage, deltaTime)
 end)
 
-CombatRemotes.Dash:SetCallback(function(player: Player, distance: number)
+CombatRemotes.Dash:OnInvoke(function(player: Player, distance: number)
 	return handleDash(player, distance)
 end)
 

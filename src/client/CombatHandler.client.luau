@@ -9,10 +9,11 @@
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 --! Modules
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local CombatRemotes = require(ReplicatedStorage.Shared.CombatRemotes)
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local CombatRemotes = require(Shared:WaitForChild("CombatRemotes"))
 
 --! LOCAL PLAYER
 local localPlayer = Players.LocalPlayer

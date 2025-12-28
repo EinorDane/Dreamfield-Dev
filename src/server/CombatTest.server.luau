@@ -6,10 +6,13 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TestFramework = require(ReplicatedStorage.Shared.TestFramework)
-local CombatCore = require(script.Parent.CombatCore)
-local PlayerData = require(ReplicatedStorage.Shared.PlayerData)
-local CorruptionCalc = require(ReplicatedStorage.Shared.CorruptionCalc)
+
+-- Wait for modules to load
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local TestFramework = require(Shared:WaitForChild("TestFramework"))
+local CombatCore = require(game.ServerScriptService.Server:WaitForChild("CombatCore"))
+local PlayerData = require(Shared:WaitForChild("PlayerData"))
+local CorruptionCalc = require(Shared:WaitForChild("CorruptionCalc"))
 
 --! TEST SUITE
 local function runTests()

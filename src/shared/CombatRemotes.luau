@@ -6,7 +6,31 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RemoteManager = require(ReplicatedStorage.Shared.RemoteManager)
+
+--! Create remotes dynamically if they don't exist
+local function getOrCreateRemote(name: string)
+	local existing = ReplicatedStorage:FindFirstChild(name)
+	if existing then
+		return existing
+	end
+	
+	local remote = Instance.new("RemoteFunction")
+	remote.Name = name
+	remote.Parent = ReplicatedStorage
+	return remote
+end
+
+local function getOrCreateEvent(name: string)
+	local existing = ReplicatedStorage:FindFirstChild(name)
+	if existing then
+		return existing
+	end
+	
+	local event = Instance.new("RemoteEvent")
+	event.Name = name
+	event.Parent = ReplicatedStorage
+	return event
+end
 
 export type CombatRemote = {
 	Attack: RemoteFunction,
@@ -18,12 +42,12 @@ export type CombatRemote = {
 }
 
 local CombatRemotes: CombatRemote = {
-	Attack = RemoteManager:GetRemote("CombatAttack"),
-	Parry = RemoteManager:GetRemote("CombatParry"),
-	Block = RemoteManager:GetRemote("CombatBlock"),
-	Dash = RemoteManager:GetRemote("CombatDash"),
-	UpdateComboCounter = RemoteManager:GetRemote("UpdateComboCounter"),
-	UpdateCombatUI = RemoteManager:GetRemote("UpdateCombatUI"),
+	Attack = getOrCreateRemote("CombatAttack"),
+	Parry = getOrCreateRemote("CombatParry"),
+	Block = getOrCreateRemote("CombatBlock"),
+	Dash = getOrCreateRemote("CombatDash"),
+	UpdateComboCounter = getOrCreateEvent("UpdateComboCounter"),
+	UpdateCombatUI = getOrCreateEvent("UpdateCombatUI"),
 }
 
 return CombatRemotes
