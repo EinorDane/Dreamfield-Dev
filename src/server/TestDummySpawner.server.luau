@@ -1,31 +1,30 @@
 --!strict
 --[[
-	TestDummySpawner.server.lua - Spawns AI test dummies for combat practice
+	TestDummySpawner.server.lua - FIXED VERSION (Visible Dummies)
+	Spawns AI test dummies with visible humanoids for combat practice
 	
 	3 Types:
-	1. AGGRESSIVE DUMMY - Attacks player periodically
-	2. DEFENSIVE DUMMY - Blocks and parries player attacks  
-	3. BALANCED DUMMY - Mixes attack/defense/dash
+	1. AGGRESSIVE DUMMY - Red, attacks 70% of time
+	2. DEFENSIVE DUMMY - Blue, blocks/parries 60% of time
+	3. BALANCED DUMMY - Orange, even mix
 	
-	File: src/server/TestDummySpawner.server.lua
+	Path: src/server/TestDummySpawner.server.lua
 ]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- ============================================================
 -- CONFIG
 -- ============================================================
 
 local DUMMY_CONFIG = {
-	BASE_SIZE = Vector3.new(2, 6, 2),
+	BASE_SIZE = Vector3.new(2, 5, 2),
 	BASE_SPEED = 16,
 	
 	AGGRESSIVE = {
 		attackCooldown = 1.5,
 		attackRange = 16,
-		attackDamage = 15,
 		moveChance = 0.3,
 		attackChance = 0.7,
 		parryChance = 0.1,
@@ -35,7 +34,6 @@ local DUMMY_CONFIG = {
 	DEFENSIVE = {
 		attackCooldown = 2.5,
 		attackRange = 16,
-		attackDamage = 10,
 		moveChance = 0.2,
 		attackChance = 0.3,
 		parryChance = 0.6,
@@ -45,7 +43,6 @@ local DUMMY_CONFIG = {
 	BALANCED = {
 		attackCooldown = 2.0,
 		attackRange = 16,
-		attackDamage = 12,
 		moveChance = 0.4,
 		attackChance = 0.5,
 		parryChance = 0.4,
@@ -61,17 +58,16 @@ type DummyState = {
 	model: Model,
 	humanoid: Humanoid,
 	rootPart: BasePart,
-	dummyType: string, -- "AGGRESSIVE" | "DEFENSIVE" | "BALANCED"
+	dummyType: string,
 	lastAttackTime: number,
 	isBlocking: boolean,
 	targetPlayer: Player?,
-	comboCount: number,
 	health: number,
 	maxHealth: number,
 }
 
 -- ============================================================
--- SPAWN DUMMY
+-- SPAWN VISIBLE DUMMY
 -- ============================================================
 
 local function spawnDummy(position: Vector3, dummyType: string): DummyState
@@ -79,7 +75,7 @@ local function spawnDummy(position: Vector3, dummyType: string): DummyState
 	local model = Instance.new("Model")
 	model.Name = "TestDummy_" .. dummyType
 	
-	-- Root Part
+	-- Root Part (HumanoidRootPart)
 	local rootPart = Instance.new("Part")
 	rootPart.Name = "HumanoidRootPart"
 	rootPart.Shape = Enum.PartType.Cylinder
@@ -94,22 +90,84 @@ local function spawnDummy(position: Vector3, dummyType: string): DummyState
 	local head = Instance.new("Part")
 	head.Name = "Head"
 	head.Shape = Enum.PartType.Ball
-	head.Size = Vector3.new(1.5, 1.5, 1.5)
+	head.Size = Vector3.new(1.8, 1.8, 1.8)
 	head.CanCollide = true
-	head.CFrame = rootPart.CFrame + Vector3.new(0, 4, 0)
+	head.TopSurface = Enum.SurfaceType.Smooth
+	head.BottomSurface = Enum.SurfaceType.Smooth
 	head.Parent = model
 	
-	-- Connect head to root
-	local neck = Instance.new("WeldConstraint")
-	neck.Part0 = rootPart
-	neck.Part1 = head
-	neck.Parent = head
+	-- Left Arm
+	local leftArm = Instance.new("Part")
+	leftArm.Name = "Left Arm"
+	leftArm.Shape = Enum.PartType.Block
+	leftArm.Size = Vector3.new(1, 2, 1)
+	leftArm.CanCollide = true
+	leftArm.Parent = model
+	
+	-- Right Arm
+	local rightArm = Instance.new("Part")
+	rightArm.Name = "Right Arm"
+	rightArm.Shape = Enum.PartType.Block
+	rightArm.Size = Vector3.new(1, 2, 1)
+	rightArm.CanCollide = true
+	rightArm.Parent = model
+	
+	-- Left Leg
+	local leftLeg = Instance.new("Part")
+	leftLeg.Name = "Left Leg"
+	leftLeg.Shape = Enum.PartType.Block
+	leftLeg.Size = Vector3.new(1, 2, 1)
+	leftLeg.CanCollide = true
+	leftLeg.Parent = model
+	
+	-- Right Leg
+	local rightLeg = Instance.new("Part")
+	rightLeg.Name = "Right Leg"
+	rightLeg.Shape = Enum.PartType.Block
+	rightLeg.Size = Vector3.new(1, 2, 1)
+	rightLeg.CanCollide = true
+	rightLeg.Parent = model
 	
 	-- Humanoid
 	local humanoid = Instance.new("Humanoid")
 	humanoid.Parent = model
 	humanoid.MaxHealth = 100
 	humanoid.Health = 100
+	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	
+	-- Set Color by Type
+	local color = Color3.fromRGB(100, 100, 100)
+	if dummyType == "AGGRESSIVE" then
+		color = Color3.fromRGB(255, 0, 0) -- Red
+	elseif dummyType == "DEFENSIVE" then
+		color = Color3.fromRGB(0, 0, 255) -- Blue
+	elseif dummyType == "BALANCED" then
+		color = Color3.fromRGB(255, 165, 0) -- Orange
+	end
+	
+	-- Apply colors to all parts
+	for _, part in pairs(model:GetChildren()) do
+		if part:IsA("BasePart") then
+			part.Color = color
+			part.Material = Enum.Material.SmoothPlastic
+		end
+	end
+	
+	-- Position body parts relative to root
+	local function weld(part0: BasePart, part1: BasePart, offset: CFrame)
+		local weld = Instance.new("WeldConstraint")
+		weld.Part0 = part0
+		weld.Part1 = part1
+		weld.Parent = part1
+		part1.CFrame = part0.CFrame * offset
+	end
+	
+	-- Weld parts together
+	weld(rootPart, head, CFrame.new(0, 2.5, 0))
+	weld(rootPart, leftArm, CFrame.new(-2, 1.5, 0))
+	weld(rootPart, rightArm, CFrame.new(2, 1.5, 0))
+	weld(rootPart, leftLeg, CFrame.new(-0.5, -2.5, 0))
+	weld(rootPart, rightLeg, CFrame.new(0.5, -2.5, 0))
 	
 	model.Parent = workspace
 	
@@ -121,23 +179,9 @@ local function spawnDummy(position: Vector3, dummyType: string): DummyState
 		lastAttackTime = 0,
 		isBlocking = false,
 		targetPlayer = nil,
-		comboCount = 0,
 		health = 100,
 		maxHealth = 100,
 	}
-	
-	-- Color by type
-	local color = Color3.fromRGB(100, 100, 100) -- Gray default
-	if dummyType == "AGGRESSIVE" then
-		color = Color3.fromRGB(255, 0, 0) -- Red
-	elseif dummyType == "DEFENSIVE" then
-		color = Color3.fromRGB(0, 0, 255) -- Blue
-	elseif dummyType == "BALANCED" then
-		color = Color3.fromRGB(255, 165, 0) -- Orange
-	end
-	
-	rootPart.Color = color
-	head.Color = color
 	
 	-- Tag for identification
 	local tag = Instance.new("StringValue")
@@ -194,9 +238,7 @@ local function dummyAttack(dummy: DummyState)
 	if distance > config.attackRange then return end
 	
 	dummy.lastAttackTime = tick()
-	
-	-- Simulate attack animation
-	print("⚡ " .. dummy.dummyType .. " Dummy ATTACKS!")
+	print("⚡ " .. dummy.dummyType .. " Dummy ATTACKS player!")
 end
 
 local function dummyBlock(dummy: DummyState)
@@ -204,11 +246,10 @@ local function dummyBlock(dummy: DummyState)
 	if dummy.isBlocking then return end
 	
 	dummy.isBlocking = true
-	print("🛡️  " .. dummy.dummyType .. " Dummy is BLOCKING")
+	print("🛡️  " .. dummy.dummyType .. " Dummy BLOCKING")
 	
-	task.wait(2)
+	task.wait(1.5)
 	dummy.isBlocking = false
-	print("⏹️  " .. dummy.dummyType .. " Dummy stopped blocking")
 end
 
 local function dummyMove(dummy: DummyState)
@@ -218,14 +259,8 @@ local function dummyMove(dummy: DummyState)
 	local targetPos = dummy.targetPlayer.Character.PrimaryPart.Position
 	local direction = (targetPos - dummy.rootPart.Position).Unit
 	
-	-- Move toward player
-	local bodyVelocity = dummy.rootPart:FindFirstChild("BodyVelocity")
-	if not bodyVelocity then
-		bodyVelocity = Instance.new("BodyVelocity")
-		bodyVelocity.Parent = dummy.rootPart
-	end
-	
-	bodyVelocity.Velocity = direction * DUMMY_CONFIG.BASE_SPEED
+	-- Simple movement toward player
+	dummy.rootPart.CFrame = dummy.rootPart.CFrame + (direction * 0.5)
 end
 
 local function dummyTakeDamage(dummy: DummyState, damage: number)
@@ -233,11 +268,11 @@ local function dummyTakeDamage(dummy: DummyState, damage: number)
 	dummy.health = math.max(0, dummy.health - damage)
 	dummy.humanoid.Health = dummy.health
 	
-	print("💔 " .. dummy.dummyType .. " Dummy took " .. damage .. " damage! (Health: " .. dummy.health .. "/" .. dummy.maxHealth .. ")")
+	print("💔 " .. dummy.dummyType .. " took " .. damage .. " damage! HP: " .. dummy.health .. "/100")
 	
 	if dummy.health <= 0 then
-		print("💀 " .. dummy.dummyType .. " Dummy defeated!")
-		task.wait(2)
+		print("💀 " .. dummy.dummyType .. " DEFEATED!")
+		task.wait(3)
 		dummy.model:Destroy()
 	end
 end
@@ -250,18 +285,13 @@ local dummies: { DummyState } = {}
 
 local function updateDummyAI(dummy: DummyState)
 	--!strict
-	-- Find nearest player
 	dummy.targetPlayer = findNearestPlayer(dummy)
 	
-	if not dummy.targetPlayer then
-		-- Idle
-		return
-	end
+	if not dummy.targetPlayer then return end
 	
 	local config = getDummyConfig(dummy.dummyType)
 	local rand = math.random()
 	
-	-- Decide action
 	if rand < config.blockChance then
 		dummyBlock(dummy)
 	elseif rand < config.blockChance + config.attackChance then
@@ -272,37 +302,36 @@ local function updateDummyAI(dummy: DummyState)
 end
 
 RunService.Heartbeat:Connect(function()
-	for i, dummy in ipairs(dummies) do
+	for i = #dummies, 1, -1 do
+		local dummy = dummies[i]
 		if not dummy.model.Parent then
 			table.remove(dummies, i)
-			continue
+		else
+			updateDummyAI(dummy)
 		end
-		
-		updateDummyAI(dummy)
 	end
 end)
 
 -- ============================================================
--- SPAWN DUMMIES ON PLAYER JOIN
+-- SPAWN ON PLAYER JOIN
 -- ============================================================
 
 Players.PlayerAdded:Connect(function(player)
-	task.wait(0.5) -- Wait for character to load
+	task.wait(1) -- Wait for character
 	
 	if not player.Character then return end
 	
 	local spawnPos = player.Character.PrimaryPart.Position + Vector3.new(15, 0, 0)
 	
-	-- Spawn 3 test dummies
-	local aggressiveDummy = spawnDummy(spawnPos, "AGGRESSIVE")
-	local defensiveDummy = spawnDummy(spawnPos + Vector3.new(10, 0, 0), "DEFENSIVE")
-	local balancedDummy = spawnDummy(spawnPos + Vector3.new(20, 0, 0), "BALANCED")
+	local aggressive = spawnDummy(spawnPos, "AGGRESSIVE")
+	local defensive = spawnDummy(spawnPos + Vector3.new(10, 0, 0), "DEFENSIVE")
+	local balanced = spawnDummy(spawnPos + Vector3.new(20, 0, 0), "BALANCED")
 	
-	table.insert(dummies, aggressiveDummy)
-	table.insert(dummies, defensiveDummy)
-	table.insert(dummies, balancedDummy)
+	table.insert(dummies, aggressive)
+	table.insert(dummies, defensive)
+	table.insert(dummies, balanced)
 	
-	print("🎯 Spawned 3 test dummies for player " .. player.Name)
+	print("🎯 Spawned 3 visible dummies for " .. player.Name)
 end)
 
 -- ============================================================
@@ -310,13 +339,12 @@ end)
 -- ============================================================
 
 Players.PlayerRemoving:Connect(function(player)
-	-- Dummies auto-cleanup when player leaves
-	for i, dummy in ipairs(dummies) do
-		if dummy.model and dummy.model.Parent then
-			dummy.model:Destroy()
+	for i = #dummies, 1, -1 do
+		if dummies[i].model and dummies[i].model.Parent then
+			dummies[i].model:Destroy()
 		end
+		table.remove(dummies, i)
 	end
-	dummies = {}
 end)
 
-print("✅ TestDummySpawner loaded - 3 dummies will spawn per player")
+print("✅ TestDummySpawner loaded - 3 VISIBLE dummies will spawn per player")

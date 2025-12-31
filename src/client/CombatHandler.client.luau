@@ -1,13 +1,10 @@
 --!strict
 --[[
-	CombatHandler.client.luau - ENHANCED VERSION
-	Client-side input handling for combat + mobility
-	
-	CONTROLS:
-	- LMB: Attack (combo 1/2/3) - works WITHOUT target (practice mode)
-	- F: HOLD = Block, TAP = Parry (0.5s window)
-	- Shift: Sprint (continuous, stamina drain)
-	- Q: Dash (directional)
+	CombatHandler.client.lua - MERGED FIXES
+	- Dash Direction: Uses Character Facing
+	- Block: Hold F
+	- Parry: Tap F
+	- Practice Swings: Enabled
 	
 	Path: src/client/CombatHandler.client.lua
 ]]
@@ -17,12 +14,14 @@ local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 
 --! Player & Character
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
+local camera = workspace.CurrentCamera
 
 --! Modules
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -33,6 +32,7 @@ local CONFIG = {
 	ATTACK = {
 		COOLDOWN = 0.4,
 		RANGE = 16,
+		WINDOW = 0.5,
 	},
 	PARRY = {
 		WINDOW = 0.5,
@@ -41,6 +41,8 @@ local CONFIG = {
 	},
 	DASH = {
 		COOLDOWN = 2.0,
+		DISTANCE = 15,
+		STAMINA_COST = 27,
 	},
 	SPRINT = {
 		SPEED_MULTIPLIER = 1.5,
@@ -60,7 +62,6 @@ local InputState = {
 	LastDashTime = 0,
 	IsSprinting = false,
 	IsBlocking = false,
-	IsWallSliding = false,
 	ComboCount = 0,
 	LastYPosition = 0,
 	IsFalling = false,
@@ -98,7 +99,7 @@ local function handleAttack()
 		-- Attack with target
 		local result = CombatRemotes.Attack:InvokeServer(nearestPlayer, "MeleeAttack")
 		if result.success then
-			print("✅ Attack hit! Damage: " .. result.damage .. " - " .. result.message)
+			print("✅ Attack hit! Damage: " .. tostring(result.damage))
 			InputState.ComboCount = InputState.ComboCount + 1
 		else
 			print("❌ Attack missed: " .. result.message)
@@ -107,6 +108,10 @@ local function handleAttack()
 		-- Targetless attack (practice/dummy)
 		print("✨ Practice swing! (No target)")
 		InputState.ComboCount = InputState.ComboCount + 1
+		
+		-- Optional: Play animation locally for feedback
+		-- local anim = humanoid:LoadAnimation(attackAnim)
+		-- anim:Play()
 	end
 	
 	InputState.IsAttacking = false
@@ -130,14 +135,13 @@ local function handleParryAttempt()
 		end
 	end
 	
-	-- Note: Parrying usually requires an incoming attack, but we allow the input for visual feedback
 	InputState.IsParrying = true
 	InputState.LastParryTime = tick()
 	
 	if nearestAttacker then
 		local result = CombatRemotes.Parry:InvokeServer(nearestAttacker, 20)
 		if result.success then
-			print("✅ Parry successful! Chip damage: " .. result.chipDamage)
+			print("✅ Parry successful! Chip damage: " .. tostring(result.chipDamage))
 		else
 			print("❌ Parry failed! " .. result.message)
 		end
@@ -155,6 +159,9 @@ local function handleBlockStart()
 	InputState.FKeyHeldTime = tick()
 	CombatRemotes.BlockStarted:FireServer()
 	print("🛡️  Block started (holding F)")
+	
+	-- Slow down while blocking
+	humanoid.WalkSpeed = 8
 end
 
 local function handleBlockEnd()
@@ -163,6 +170,9 @@ local function handleBlockEnd()
 	InputState.IsBlocking = false
 	CombatRemotes.BlockEnded:FireServer()
 	print("⏹️  Block ended")
+	
+	-- Restore speed
+	humanoid.WalkSpeed = 16
 end
 
 local function handleDash()
@@ -172,9 +182,9 @@ local function handleDash()
 		return
 	end
 	
-	local camera = workspace.CurrentCamera
-	local direction = camera.CFrame.LookVector
-	local distance = 15 -- Default dash distance
+	-- [FIX] USE CHARACTER FACING DIRECTION, NOT CAMERA
+	local charDirection = humanoidRootPart.CFrame.LookVector
+	local distance = CONFIG.DASH.DISTANCE
 	
 	InputState.IsDashing = true
 	InputState.LastDashTime = tick()
@@ -182,9 +192,15 @@ local function handleDash()
 	local result = CombatRemotes.Dash:InvokeServer(distance)
 	
 	if result.success then
-		print("✅ Dashed! Cost: " .. result.staminaCost .. " stamina")
+		print("✅ Dashed " .. distance .. "m! Cost: " .. result.staminaCost .. " stamina")
+		
 		-- Client-side prediction for dash velocity
-		humanoidRootPart.Velocity = direction * 100
+		local bodyVelocity = Instance.new("BodyVelocity")
+		bodyVelocity.Velocity = charDirection * 80 -- Speed
+		bodyVelocity.MaxForce = Vector3.new(100000, 0, 100000)
+		bodyVelocity.Parent = humanoidRootPart
+		
+		game.Debris:AddItem(bodyVelocity, 0.2) -- Dash duration
 	else
 		print("❌ Dash failed: " .. result.message)
 	end
@@ -202,6 +218,7 @@ local function handleSprintStart()
 	if result.success then
 		print("🏃 Sprint started")
 		CombatRemotes.SprintStarted:FireServer()
+		humanoid.WalkSpeed = 16 * CONFIG.SPRINT.SPEED_MULTIPLIER
 	else
 		print("❌ Sprint failed: " .. result.message)
 		InputState.IsSprinting = false
@@ -218,6 +235,7 @@ local function handleSprintEnd()
 	if result.success then
 		print("⏹️  Sprint ended")
 		CombatRemotes.SprintEnded:FireServer()
+		humanoid.WalkSpeed = 16
 	end
 end
 
@@ -255,21 +273,18 @@ local function trackFallHeight()
 	InputState.LastYPosition = humanoidRootPart.Position.Y
 end
 
+-- Kept for legacy support, but LandingRoll.client.lua handles the voluntary roll now
 local function checkFallDamage()
 	local currentY = humanoidRootPart.Position.Y
 	local fallDistance = InputState.LastYPosition - currentY
 	
 	if fallDistance > CONFIG.FALL.TRACK_THRESHOLD and humanoid.Health > 0 then
 		InputState.IsFalling = true
-		
-		-- Wait briefly to confirm landing or continued fall
 		task.wait(0.5)
 		
 		if humanoid.Health > 0 then
-			local result = CombatRemotes.HandleLanding:InvokeServer(fallDistance)
-			if result then
-				-- Landing logic handled on server (damage/roll)
-			end
+			-- Only auto-land if not rolling (server handles logic)
+			CombatRemotes.HandleLanding:InvokeServer(fallDistance)
 		end
 		
 		InputState.IsFalling = false
@@ -282,9 +297,11 @@ end
 RunService.Heartbeat:Connect(function(deltaTime)
 	checkFallDamage()
 	
-	-- Sprint Speed Modifier
+	-- Ensure speed is correct
 	if InputState.IsSprinting then
 		humanoid.WalkSpeed = 16 * CONFIG.SPRINT.SPEED_MULTIPLIER
+	elseif InputState.IsBlocking then
+		humanoid.WalkSpeed = 8
 	else
 		humanoid.WalkSpeed = 16
 	end
@@ -326,14 +343,6 @@ CombatRemotes.ApplyKnockback.OnClientEvent:Connect(function(velocity: Vector3)
 	print("💥 Knockback applied!")
 end)
 
-CombatRemotes.TriggerRagdoll.OnClientEvent:Connect(function(duration: number)
-	print("🎭 Ragdoll triggered for " .. duration .. "s")
-end)
-
-CombatRemotes.LandingRoll.OnClientEvent:Connect(function()
-	print("🏃 Landing roll executed!")
-end)
-
 CombatRemotes.TakeFallDamage.OnClientEvent:Connect(function(damage: number, fallType: string)
 	print("💔 Fall damage: " .. damage .. " (" .. fallType .. ")")
 end)
@@ -347,19 +356,19 @@ CombatRemotes.StaminaCritical.OnClientEvent:Connect(function()
 end)
 
 CombatRemotes.SprintStarted.OnClientEvent:Connect(function()
-	print("🏃 Sprint active")
+	-- Handled locally, but good for sync
 end)
 
 CombatRemotes.SprintEnded.OnClientEvent:Connect(function()
-	print("⏹️  Sprint stopped")
+	-- Handled locally
 end)
 
 CombatRemotes.BlockStarted.OnClientEvent:Connect(function()
-	print("🛡️  Blocking...")
+	-- Handled locally
 end)
 
 CombatRemotes.BlockEnded.OnClientEvent:Connect(function()
-	print("⏹️  Block released")
+	-- Handled locally
 end)
 
 --! CHARACTER RESPAWN
@@ -378,7 +387,6 @@ player.CharacterAdded:Connect(function(newCharacter)
 		LastDashTime = 0,
 		IsSprinting = false,
 		IsBlocking = false,
-		IsWallSliding = false,
 		ComboCount = 0,
 		LastYPosition = 0,
 		IsFalling = false,
@@ -389,4 +397,4 @@ player.CharacterAdded:Connect(function(newCharacter)
 	print("🔄 Character respawned, combat handler reset")
 end)
 
-print("✅ CombatHandler loaded - Controls: LMB=Attack, F-HOLD=Block/TAP=Parry, Q=Dash, Shift=Sprint")
+print("✅ CombatHandler MERGED & LOADED - Dash: Char Dir, Block: F-Hold, Parry: F-Tap")
