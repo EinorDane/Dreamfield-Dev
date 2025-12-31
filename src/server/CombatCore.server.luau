@@ -6,7 +6,7 @@
 	SYSTEMS:
 	- Combo counter (1/2/3, resets on miss/dash/sprint)
 	- Parry mechanic (0.5s window, chip damage reflection)
-	- Block mechanic (hold F, stamina drain, damage reduction)
+	- Block mechanic (hold E, stamina drain, damage reduction)
 	- Dash (directional, distance-based stamina, resets combo)
 	- Sprint (Shift, continuous movement, stamina drain)
 	- Knockback physics (damage-based momentum)
@@ -21,12 +21,10 @@
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local PhysicsService = game:GetService("PhysicsService")
 
 --! Modules
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PlayerData = require(Shared:WaitForChild("PlayerData"))
-local CorruptionCalc = require(Shared:WaitForChild("CorruptionCalc"))
 local CombatRemotes = require(Shared:WaitForChild("CombatRemotes"))
 
 --! CONFIG
@@ -59,14 +57,12 @@ local CONFIG = {
 		COOLDOWN = 2.0,
 		IMMUNITY_DURATION = 0.4,
 	},
-	--! ========== NEW: SPRINT SYSTEM ==========
 	SPRINT = {
 		SPEED_MULTIPLIER = 1.5,
 		STAMINA_COST_PER_SECOND = 8,
 		MIN_STAMINA_TO_START = 10,
 		COOLDOWN_AFTER_SPRINT = 0.5,
 	},
-	--! ========== NEW: STAMINA SYSTEM ==========
 	STAMINA = {
 		MAX = 100,
 		REGEN_IDLE = 15,
@@ -74,7 +70,6 @@ local CONFIG = {
 		WARNING_THRESHOLD = 20,
 		CRITICAL_THRESHOLD = 5,
 	},
-	--! ========== NEW: KNOCKBACK SYSTEM ==========
 	KNOCKBACK = {
 		LIGHT_FORCE = 50,
 		MEDIUM_FORCE = 100,
@@ -82,25 +77,16 @@ local CONFIG = {
 		BASE_SPEED = 50,
 		RAGDOLL_THRESHOLD = 80,
 	},
-	--! ========== NEW: RAGDOLL SYSTEM ==========
 	RAGDOLL = {
 		DURATION_SHORT = 0.5,
 		DURATION_MEDIUM = 1.0,
 		DURATION_LONG = 1.5,
 		RECOVERY_TIME = 0.3,
 	},
-	--! ========== NEW: FALL SYSTEM ==========
 	FALL = {
 		DAMAGE_PER_STUD = 5,
 		SAFE_FALL_HEIGHT = 10,
 		LANDING_ROLL_COST = 25,
-	},
-	--! ========== NEW: WALL SLIDE ==========
-	WALL_SLIDE = {
-		ENABLED = true,
-		SLIDE_SPEED = 0.8,
-		SLIDE_STAMINA_COST = 2,
-		MIN_VERTICAL_SPEED = -50,
 	},
 	VALIDATION = {
 		MELEE_RANGE = 16,
@@ -197,7 +183,7 @@ local function calculateDamage(
 ): number
 	local playerData = PlayerData.getPlayerData(attacker.UserId)
 	
-	local corruptionMultiplier = CorruptionCalc.getDamageMultiplier(playerData.corruption)
+	local corruptionMultiplier = 1.0 + (playerData.corruptionPool / 1000)
 	local comboMultiplier = 1.0 + (comboCount * 0.1)
 	
 	local damage = baseDamage * corruptionMultiplier * comboMultiplier
@@ -258,30 +244,6 @@ local function determineFallDamage(fallHeight: number): (number, string)
 		return damage, "MEDIUM"
 	else
 		return damage, "LIGHT"
-	end
-end
-
-local function handleLanding(player: Player, fallHeight: number)
-	local playerData = PlayerData.getPlayerData(player.UserId)
-	local damage, fallType = determineFallDamage(fallHeight)
-	
-	if damage == 0 then
-		print("✅ Safe landing")
-		return
-	end
-	
-	if playerData.stamina >= CONFIG.FALL.LANDING_ROLL_COST then
-		PlayerData.removeStamina(playerData, CONFIG.FALL.LANDING_ROLL_COST)
-		CombatRemotes.LandingRoll:FireClient(player)
-		print("🏃 Landing roll! Avoided " .. damage .. " damage")
-		return
-	end
-	
-	local humanoid = player.Character:FindFirstChild("Humanoid")
-	if humanoid then
-		humanoid:TakeDamage(damage)
-		CombatRemotes.TakeFallDamage:FireClient(player, damage, fallType)
-		print("💔 Fall damage: " .. damage .. " (" .. fallType .. ")")
 	end
 end
 
@@ -473,7 +435,7 @@ local function handleDash(
 	}
 end
 
---! ==================== SPRINT HANDLER ====================
+--! ==================== SPRINT HANDLERS ====================
 
 local function handleSprintStart(player: Player): { success: boolean, message: string }
 	local playerData = PlayerData.getPlayerData(player.UserId)
@@ -546,7 +508,35 @@ local function handleSprintTick(player: Player, deltaTime: number)
 	end
 end
 
---! ==================== STAMINA REGEN ====================
+--! ==================== FALL DAMAGE & LANDING ====================
+
+local function handleLanding(player: Player, fallHeight: number)
+	local playerData = PlayerData.getPlayerData(player.UserId)
+	local damage, fallType = determineFallDamage(fallHeight)
+	
+	if damage == 0 then
+		print("✅ Safe landing")
+		return { success = true }
+	end
+	
+	if playerData.stamina >= CONFIG.FALL.LANDING_ROLL_COST then
+		PlayerData.removeStamina(playerData, CONFIG.FALL.LANDING_ROLL_COST)
+		CombatRemotes.LandingRoll:FireClient(player)
+		print("🏃 Landing roll! Avoided " .. damage .. " damage")
+		return { success = true, rolled = true }
+	end
+	
+	local humanoid = player.Character:FindFirstChild("Humanoid")
+	if humanoid then
+		humanoid:TakeDamage(damage)
+		CombatRemotes.TakeFallDamage:FireClient(player, damage, fallType)
+		print("💔 Fall damage: " .. damage .. " (" .. fallType .. ")")
+	end
+	
+	return { success = true, damage = damage }
+end
+
+--! ==================== STAMINA REGEN LOOP ====================
 
 local sprintLoop = RunService.Heartbeat:Connect(function(deltaTime)
 	for userId, state in pairs(PlayerStates) do

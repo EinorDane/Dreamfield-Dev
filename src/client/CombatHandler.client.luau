@@ -1,33 +1,34 @@
 --!strict
 --[[
-	CombatHandler.client.luau - ENHANCED WITH SPRINT & MOBILITY INPUT
+	CombatHandler.client.luau - ENHANCED VERSION
 	Client-side input handling for combat + mobility
-	Communicates with CombatCore.server via remotes
 	
 	CONTROLS:
-	- LMB: Attack (1/2/3 combo)
-	- F: Parry (0.5s window)
+	- LMB: Attack (combo 1/2/3) - works WITHOUT target (practice mode)
+	- F: HOLD = Block, TAP = Parry (0.5s window)
 	- Shift: Sprint (continuous, stamina drain)
 	- Q: Dash (directional)
-	- E: Block (hold)
-	- 1-5: Shard skills (future)
+	
+	Path: src/client/CombatHandler.client.lua
 ]]
 
---!strict
-
+--! Services
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+--! Player & Character
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 local humanoid = character:WaitForChild("Humanoid")
 
+--! Modules
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local CombatRemotes = require(Shared:WaitForChild("CombatRemotes"))
 
+--! CONFIG
 local CONFIG = {
 	ATTACK = {
 		COOLDOWN = 0.4,
@@ -36,6 +37,7 @@ local CONFIG = {
 	PARRY = {
 		WINDOW = 0.5,
 		COOLDOWN = 1.0,
+		TAP_THRESHOLD = 0.2, -- If F held < 200ms = parry attempt
 	},
 	DASH = {
 		COOLDOWN = 2.0,
@@ -48,6 +50,7 @@ local CONFIG = {
 	},
 }
 
+--! STATE
 local InputState = {
 	IsAttacking = false,
 	LastAttackTime = 0,
@@ -57,27 +60,28 @@ local InputState = {
 	LastDashTime = 0,
 	IsSprinting = false,
 	IsBlocking = false,
+	IsWallSliding = false,
 	ComboCount = 0,
 	LastYPosition = 0,
 	IsFalling = false,
+	
+	-- F-KEY STATE
+	FKeyHeldTime = 0,
+	FKeyPressed = false,
 }
 
+--! ==================== COMBAT FUNCTIONS ====================
+
 local function handleAttack()
-	if InputState.IsAttacking then
-		return
-	end
+	if InputState.IsAttacking then return end
+	if tick() - InputState.LastAttackTime < CONFIG.ATTACK.COOLDOWN then return end
 	
-	if tick() - InputState.LastAttackTime < CONFIG.ATTACK.COOLDOWN then
-		return
-	end
-	
+	-- Try to find nearest player (for actual combat)
 	local nearestPlayer = nil
 	local nearestDistance = CONFIG.ATTACK.RANGE
 	
 	for _, otherPlayer in pairs(Players:GetPlayers()) do
-		if otherPlayer == player or not otherPlayer.Character then
-			continue
-		end
+		if otherPlayer == player or not otherPlayer.Character then continue end
 		
 		local distance = (humanoidRootPart.Position - otherPlayer.Character.PrimaryPart.Position).Magnitude
 		if distance < nearestDistance then
@@ -86,42 +90,38 @@ local function handleAttack()
 		end
 	end
 	
-	if not nearestPlayer then
-		print("❌ No target in range")
-		return
-	end
-	
+	-- ALLOW TARGETLESS ATTACKS (practice mode)
 	InputState.IsAttacking = true
 	InputState.LastAttackTime = tick()
 	
-	local result = CombatRemotes.Attack:InvokeServer(nearestPlayer, "MeleeAttack")
-	
-	if result.success then
-		print("✅ Attack hit! Damage: " .. result.damage .. " - " .. result.message)
-		InputState.ComboCount = InputState.ComboCount + 1
+	if nearestPlayer then
+		-- Attack with target
+		local result = CombatRemotes.Attack:InvokeServer(nearestPlayer, "MeleeAttack")
+		if result.success then
+			print("✅ Attack hit! Damage: " .. result.damage .. " - " .. result.message)
+			InputState.ComboCount = InputState.ComboCount + 1
+		else
+			print("❌ Attack missed: " .. result.message)
+		end
 	else
-		print("❌ Attack missed: " .. result.message)
+		-- Targetless attack (practice/dummy)
+		print("✨ Practice swing! (No target)")
+		InputState.ComboCount = InputState.ComboCount + 1
 	end
 	
 	InputState.IsAttacking = false
 end
 
-local function handleParry()
-	if InputState.IsParrying then
-		return
-	end
+local function handleParryAttempt()
+	if InputState.IsParrying then return end
+	if tick() - InputState.LastParryTime < CONFIG.PARRY.COOLDOWN then return end
 	
-	if tick() - InputState.LastParryTime < CONFIG.PARRY.COOLDOWN then
-		return
-	end
-	
+	-- Try to find nearest player to parry against
 	local nearestAttacker = nil
 	local nearestDistance = CONFIG.ATTACK.RANGE
 	
 	for _, otherPlayer in pairs(Players:GetPlayers()) do
-		if otherPlayer == player or not otherPlayer.Character then
-			continue
-		end
+		if otherPlayer == player or not otherPlayer.Character then continue end
 		
 		local distance = (humanoidRootPart.Position - otherPlayer.Character.PrimaryPart.Position).Magnitude
 		if distance < nearestDistance then
@@ -130,39 +130,35 @@ local function handleParry()
 		end
 	end
 	
-	if not nearestAttacker then
-		print("❌ No one to parry")
-		return
-	end
-	
+	-- Note: Parrying usually requires an incoming attack, but we allow the input for visual feedback
 	InputState.IsParrying = true
 	InputState.LastParryTime = tick()
 	
-	local result = CombatRemotes.Parry:InvokeServer(nearestAttacker, 20)
-	
-	if result.success then
-		print("✅ Parry successful! Chip damage: " .. result.chipDamage)
+	if nearestAttacker then
+		local result = CombatRemotes.Parry:InvokeServer(nearestAttacker, 20)
+		if result.success then
+			print("✅ Parry successful! Chip damage: " .. result.chipDamage)
+		else
+			print("❌ Parry failed! " .. result.message)
+		end
 	else
-		print("❌ Parry failed! " .. result.message)
+		print("⚔️  Parry stance ready (No enemy)")
 	end
 	
 	InputState.IsParrying = false
 end
 
 local function handleBlockStart()
-	if InputState.IsBlocking then
-		return
-	end
+	if InputState.IsBlocking then return end
 	
 	InputState.IsBlocking = true
+	InputState.FKeyHeldTime = tick()
 	CombatRemotes.BlockStarted:FireServer()
-	print("🛡️  Block started")
+	print("🛡️  Block started (holding F)")
 end
 
 local function handleBlockEnd()
-	if not InputState.IsBlocking then
-		return
-	end
+	if not InputState.IsBlocking then return end
 	
 	InputState.IsBlocking = false
 	CombatRemotes.BlockEnded:FireServer()
@@ -170,10 +166,7 @@ local function handleBlockEnd()
 end
 
 local function handleDash()
-	if InputState.IsDashing then
-		return
-	end
-	
+	if InputState.IsDashing then return end
 	if tick() - InputState.LastDashTime < CONFIG.DASH.COOLDOWN then
 		print("⏳ Dash on cooldown")
 		return
@@ -181,7 +174,7 @@ local function handleDash()
 	
 	local camera = workspace.CurrentCamera
 	local direction = camera.CFrame.LookVector
-	local distance = 15
+	local distance = 15 -- Default dash distance
 	
 	InputState.IsDashing = true
 	InputState.LastDashTime = tick()
@@ -190,6 +183,7 @@ local function handleDash()
 	
 	if result.success then
 		print("✅ Dashed! Cost: " .. result.staminaCost .. " stamina")
+		-- Client-side prediction for dash velocity
 		humanoidRootPart.Velocity = direction * 100
 	else
 		print("❌ Dash failed: " .. result.message)
@@ -199,9 +193,7 @@ local function handleDash()
 end
 
 local function handleSprintStart()
-	if InputState.IsSprinting then
-		return
-	end
+	if InputState.IsSprinting then return end
 	
 	InputState.IsSprinting = true
 	
@@ -217,9 +209,7 @@ local function handleSprintStart()
 end
 
 local function handleSprintEnd()
-	if not InputState.IsSprinting then
-		return
-	end
+	if not InputState.IsSprinting then return end
 	
 	InputState.IsSprinting = false
 	
@@ -231,6 +221,36 @@ local function handleSprintEnd()
 	end
 end
 
+--! ==================== F-KEY SPECIAL HANDLING ====================
+
+local function handleFKeyPressed()
+	if InputState.FKeyPressed then return end
+	
+	InputState.FKeyPressed = true
+	InputState.FKeyHeldTime = tick()
+	
+	-- Start block immediately on press
+	handleBlockStart()
+end
+
+local function handleFKeyReleased()
+	if not InputState.FKeyPressed then return end
+	
+	InputState.FKeyPressed = false
+	local holdDuration = tick() - InputState.FKeyHeldTime
+	
+	-- End block
+	handleBlockEnd()
+	
+	-- If held for less than TAP_THRESHOLD, treat as parry attempt
+	if holdDuration < CONFIG.PARRY.TAP_THRESHOLD then
+		print("⚡ Quick tap detected - attempting parry")
+		handleParryAttempt()
+	end
+end
+
+--! PHYSICS & MOBILITY TRACKING
+
 local function trackFallHeight()
 	InputState.LastYPosition = humanoidRootPart.Position.Y
 end
@@ -241,14 +261,14 @@ local function checkFallDamage()
 	
 	if fallDistance > CONFIG.FALL.TRACK_THRESHOLD and humanoid.Health > 0 then
 		InputState.IsFalling = true
-		print("🪂 Falling... Distance: " .. math.floor(fallDistance) .. "m")
 		
+		-- Wait briefly to confirm landing or continued fall
 		task.wait(0.5)
 		
 		if humanoid.Health > 0 then
 			local result = CombatRemotes.HandleLanding:InvokeServer(fallDistance)
 			if result then
-				print("✅ Landing handled")
+				-- Landing logic handled on server (damage/roll)
 			end
 		end
 		
@@ -258,17 +278,27 @@ local function checkFallDamage()
 	trackFallHeight()
 end
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then
-		return
+--! MAIN LOOP
+RunService.Heartbeat:Connect(function(deltaTime)
+	checkFallDamage()
+	
+	-- Sprint Speed Modifier
+	if InputState.IsSprinting then
+		humanoid.WalkSpeed = 16 * CONFIG.SPRINT.SPEED_MULTIPLIER
+	else
+		humanoid.WalkSpeed = 16
 	end
+end)
+
+--! ==================== INPUT BINDINGS ====================
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
 	
 	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		handleAttack()
 	elseif input.KeyCode == Enum.KeyCode.F then
-		handleParry()
-	elseif input.KeyCode == Enum.KeyCode.E then
-		handleBlockStart()
+		handleFKeyPressed()
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		handleDash()
 	elseif input.KeyCode == Enum.KeyCode.LeftShift then
@@ -277,12 +307,14 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 UserInputService.InputEnded:Connect(function(input, gameProcessed)
-	if input.KeyCode == Enum.KeyCode.E then
-		handleBlockEnd()
+	if input.KeyCode == Enum.KeyCode.F then
+		handleFKeyReleased()
 	elseif input.KeyCode == Enum.KeyCode.LeftShift then
 		handleSprintEnd()
 	end
 end)
+
+--! ==================== REMOTE EVENT LISTENERS ====================
 
 CombatRemotes.UpdateComboCounter.OnClientEvent:Connect(function(comboCount: number)
 	InputState.ComboCount = comboCount
@@ -322,25 +354,21 @@ CombatRemotes.SprintEnded.OnClientEvent:Connect(function()
 	print("⏹️  Sprint stopped")
 end)
 
-RunService.Heartbeat:Connect(function(deltaTime)
-	trackFallHeight()
-	
-	if InputState.IsSprinting then
-		humanoid.WalkSpeed = 16 * CONFIG.SPRINT.SPEED_MULTIPLIER
-	else
-		humanoid.WalkSpeed = 16
-	end
-	
-	if InputState.IsBlocking and not UserInputService:IsKeyDown(Enum.KeyCode.E) then
-		handleBlockEnd()
-	end
+CombatRemotes.BlockStarted.OnClientEvent:Connect(function()
+	print("🛡️  Blocking...")
 end)
 
+CombatRemotes.BlockEnded.OnClientEvent:Connect(function()
+	print("⏹️  Block released")
+end)
+
+--! CHARACTER RESPAWN
 player.CharacterAdded:Connect(function(newCharacter)
 	character = newCharacter
 	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 	humanoid = character:WaitForChild("Humanoid")
 	
+	-- Reset Input State
 	InputState = {
 		IsAttacking = false,
 		LastAttackTime = 0,
@@ -350,12 +378,15 @@ player.CharacterAdded:Connect(function(newCharacter)
 		LastDashTime = 0,
 		IsSprinting = false,
 		IsBlocking = false,
+		IsWallSliding = false,
 		ComboCount = 0,
 		LastYPosition = 0,
 		IsFalling = false,
+		FKeyHeldTime = 0,
+		FKeyPressed = false,
 	}
 	
 	print("🔄 Character respawned, combat handler reset")
 end)
 
-print("✅ CombatHandler loaded - Controls: LMB=Attack, F=Parry, E=Block, Q=Dash, Shift=Sprint")
+print("✅ CombatHandler loaded - Controls: LMB=Attack, F-HOLD=Block/TAP=Parry, Q=Dash, Shift=Sprint")

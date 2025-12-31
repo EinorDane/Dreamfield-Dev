@@ -3,13 +3,10 @@
 	THREAD-002: PlayerData Module (Core Storage)
 	
 	Central data storage system for all player progression, inventory,
-	and game state. Uses ProfileService for persistence.
-	Uses strict type checking for data safety.
+	and game state. Uses strict type checking for data safety.
 	
 	File: src/shared/PlayerData.luau
 	Priority: CRITICAL (all systems depend on this)
-	Complexity: Medium
-	Time Estimate: 3-4 hours
 ]]
 
 local PlayerData = {}
@@ -200,160 +197,141 @@ function PlayerData.addExperience(profile: PlayerProfile, amount: number): ()
 	profile.tolerance = profile.level * 5
 end
 
-function PlayerData.setCorruption(profile: PlayerProfile, amount: number): ()
+function PlayerData.removeExperience(profile: PlayerProfile, amount: number): ()
 	--!strict
-	if amount < 0 or amount > profile.maxCorruption then
-		error(
-			string.format(
-				"Corruption must be between 0 and %d",
-				profile.maxCorruption
-			),
-			2
-		)
+	if amount < 0 then
+		error("Experience amount must be positive", 2)
 	end
 	
-	profile.corruption = amount
-	profile.overloaded = amount >= profile.maxCorruption
-end
-
-function PlayerData.updateCorruptionPool(profile: PlayerProfile): ()
-	--!strict
-	local totalCorruption = 0
+	profile.experience -= amount
 	
-	for _, shard in ipairs(profile.equippedShards) do
-		if shard then
-			totalCorruption += shard.corruption
-		end
+	-- Handle level downs if experience goes negative
+	while profile.experience < 0 and profile.level > 1 do
+		profile.level -= 1
+		profile.experience += 100
 	end
 	
-	profile.corruptionPool = totalCorruption
+	profile.experience = math.max(0, profile.experience)
 	profile.tolerance = profile.level * 5
 end
 
-function PlayerData.addStamina(profile: PlayerProfile, amount: number): ()
+-- ============================================================
+-- PUBLIC: Stamina Management (CRITICAL FOR COMBAT)
+-- ============================================================
+
+function PlayerData.addStamina(profile: PlayerProfile, amount: number): number
 	--!strict
+	if amount < 0 then
+		error("Stamina amount must be positive", 2)
+	end
+	
 	profile.stamina = math.min(profile.stamina + amount, profile.maxStamina)
+	return profile.stamina
 end
 
-function PlayerData.removeStamina(profile: PlayerProfile, amount: number): ()
+function PlayerData.removeStamina(profile: PlayerProfile, amount: number): number
 	--!strict
 	if amount < 0 then
 		error("Stamina amount must be positive", 2)
 	end
 	
 	profile.stamina = math.max(profile.stamina - amount, 0)
+	return profile.stamina
 end
 
-function PlayerData.canAddInventoryItem(profile: PlayerProfile, item: InventoryItem): boolean
+function PlayerData.setStamina(profile: PlayerProfile, amount: number): number
+	--!strict
+	if amount < 0 or amount > profile.maxStamina then
+		error("Stamina must be between 0 and " .. profile.maxStamina, 2)
+	end
+	
+	profile.stamina = amount
+	return profile.stamina
+end
+
+function PlayerData.restoreStamina(profile: PlayerProfile): number
+	--!strict
+	profile.stamina = profile.maxStamina
+	return profile.stamina
+end
+
+-- ============================================================
+-- PUBLIC: Corruption Management
+-- ============================================================
+
+function PlayerData.addCorruption(profile: PlayerProfile, amount: number): ()
+	--!strict
+	if amount < 0 then
+		error("Corruption amount must be positive", 2)
+	end
+	
+	profile.corruptionPool = math.min(profile.corruptionPool + amount, profile.maxCorruption * 1.5)
+	profile.overloaded = profile.corruptionPool >= profile.maxCorruption
+end
+
+function PlayerData.removeCorruption(profile: PlayerProfile, amount: number): ()
+	--!strict
+	if amount < 0 then
+		error("Corruption amount must be positive", 2)
+	end
+	
+	profile.corruptionPool = math.max(profile.corruptionPool - amount, 0)
+	profile.overloaded = profile.corruptionPool >= profile.maxCorruption
+end
+
+function PlayerData.setCorruption(profile: PlayerProfile, amount: number): ()
+	--!strict
+	if amount < 0 then
+		error("Corruption cannot be negative", 2)
+	end
+	
+	profile.corruptionPool = math.min(amount, profile.maxCorruption * 1.5)
+	profile.overloaded = profile.corruptionPool >= profile.maxCorruption
+end
+
+function PlayerData.getCorruption(profile: PlayerProfile): number
+	--!strict
+	return profile.corruptionPool
+end
+
+function PlayerData.updateCorruptionPool(profile: PlayerProfile): ()
+	--!strict
+	-- Recalculate corruption from equipped shards
+	local totalCorruption = 0
+	
+	for i = 1, 5 do
+		if profile.equippedShards[i] then
+			totalCorruption += profile.equippedShards[i].corruption or 0
+		end
+	end
+	
+	profile.corruptionPool = totalCorruption
+	profile.overloaded = profile.corruptionPool >= profile.maxCorruption
+	profile.tolerance = profile.level * 5
+end
+
+-- ============================================================
+-- PUBLIC: Inventory Management
+-- ============================================================
+
+function PlayerData.addInventoryItem(profile: PlayerProfile, item: InventoryItem): boolean
 	--!strict
 	if #profile.inventory >= profile.inventorySlots then
 		return false
 	end
 	
-	if profile.inventoryWeight + item.weight > profile.maxInventoryWeight then
-		return false
-	end
-	
-	return true
-end
-
-function PlayerData.addInventoryItem(profile: PlayerProfile, item: InventoryItem): boolean
-	--!strict
-	if not PlayerData.canAddInventoryItem(profile, item) then
-		return false
-	end
-	
-	item.slotIndex = #profile.inventory + 1
-	table.insert(profile.inventory, item)
+	profile.inventory[#profile.inventory + 1] = item
 	profile.inventoryWeight += item.weight
 	
 	return true
 end
 
-function PlayerData.removeInventoryItem(profile: PlayerProfile, slotIndex: number): InventoryItem?
+function PlayerData.removeInventoryItem(profile: PlayerProfile, itemId: string): boolean
 	--!strict
-	if slotIndex < 1 or slotIndex > #profile.inventory then
-		return nil
-	end
-	
-	local item = profile.inventory[slotIndex]
-	if item then
-		profile.inventoryWeight -= item.weight
-		table.remove(profile.inventory, slotIndex)
-		
-		for i = slotIndex, #profile.inventory do
-			profile.inventory[i].slotIndex = i
-		end
-	end
-	
-	return item
-end
-
-function PlayerData.getInventoryItem(profile: PlayerProfile, slotIndex: number): InventoryItem?
-	--!strict
-	if slotIndex < 1 or slotIndex > #profile.inventory then
-		return nil
-	end
-	
-	return profile.inventory[slotIndex]
-end
-
-function PlayerData.equipShard(profile: PlayerProfile, shard: Shard, slot: number): boolean
-	--!strict
-	if slot < 1 or slot > 5 then
-		error("Shard slot out of range", 2)
-	end
-	
-	if not shard then
-		error("Shard is nil", 2)
-	end
-	
-	profile.equippedShards[slot] = shard
-	PlayerData.updateCorruptionPool(profile)
-	
-	return true
-end
-
-function PlayerData.unequipShard(profile: PlayerProfile, slot: number): Shard?
-	--!strict
-	if slot < 1 or slot > 5 then
-		return nil
-	end
-	
-	local shard = profile.equippedShards[slot]
-	if shard then
-		profile.equippedShards[slot] = nil
-		PlayerData.updateCorruptionPool(profile)
-	end
-	
-	return shard
-end
-
-function PlayerData.changeWorld(profile: PlayerProfile, world: string): ()
-	--!strict
-	if world ~= "RuinedEarth" and world ~= "Dreamfield" then
-		error("Invalid world: " .. world, 2)
-	end
-	
-	profile.currentWorld = world
-	profile.lastLogin = os.time()
-end
-
-function PlayerData.addTaskCompletion(profile: PlayerProfile, taskId: string): ()
-	--!strict
-	for _, completedTaskId in ipairs(profile.tasksCompleted) do
-		if completedTaskId == taskId then
-			return
-		end
-	end
-	
-	table.insert(profile.tasksCompleted, taskId)
-end
-
-function PlayerData.hasCompletedTask(profile: PlayerProfile, taskId: string): boolean
-	--!strict
-	for _, completedTaskId in ipairs(profile.tasksCompleted) do
-		if completedTaskId == taskId then
+	for i, item in ipairs(profile.inventory) do
+		if item.id == itemId then
+			profile.inventoryWeight -= item.weight
+			table.remove(profile.inventory, i)
 			return true
 		end
 	end
@@ -361,56 +339,113 @@ function PlayerData.hasCompletedTask(profile: PlayerProfile, taskId: string): bo
 	return false
 end
 
-function PlayerData.updateFactionReputation(
-	profile: PlayerProfile,
-	faction: string,
-	amount: number
-): ()
+function PlayerData.getInventoryItem(profile: PlayerProfile, itemId: string): InventoryItem?
+	--!strict
+	for _, item in ipairs(profile.inventory) do
+		if item.id == itemId then
+			return item
+		end
+	end
+	
+	return nil
+end
+
+-- ============================================================
+-- PUBLIC: Equipment Management
+-- ============================================================
+
+function PlayerData.equipShard(profile: PlayerProfile, shard: Shard, slot: number): boolean
+	--!strict
+	if slot < 1 or slot > #profile.equippedShards then
+		return false
+	end
+	
+	profile.equippedShards[slot] = shard
+	PlayerData.updateCorruptionPool(profile)
+	return true
+end
+
+function PlayerData.unequipShard(profile: PlayerProfile, slot: number): Shard?
+	--!strict
+	if slot < 1 or slot > #profile.equippedShards then
+		return nil
+	end
+	
+	local shard = profile.equippedShards[slot]
+	profile.equippedShards[slot] = nil
+	PlayerData.updateCorruptionPool(profile)
+	return shard
+end
+
+function PlayerData.getEquippedShards(profile: PlayerProfile): { Shard? }
+	--!strict
+	return profile.equippedShards
+end
+
+-- ============================================================
+-- PUBLIC: Faction Reputation
+-- ============================================================
+
+function PlayerData.addReputation(profile: PlayerProfile, faction: string, amount: number): ()
 	--!strict
 	if not profile.factionsReputation[faction] then
-		error("Unknown faction: " .. faction, 2)
+		profile.factionsReputation[faction] = 0
 	end
 	
 	profile.factionsReputation[faction] += amount
 end
 
--- ============================================================
--- PUBLIC: Validation & Save
--- ============================================================
-
-function PlayerData.validate(profile: any): boolean
+function PlayerData.getReputation(profile: PlayerProfile, faction: string): number
 	--!strict
-	return validateProfile(profile)
+	return profile.factionsReputation[faction] or 0
 end
 
-function PlayerData.sanitize(profile: PlayerProfile): PlayerProfile
+-- ============================================================
+-- PUBLIC: World State
+-- ============================================================
+
+function PlayerData.setWorldPosition(profile: PlayerProfile, world: string, position: { number }): ()
 	--!strict
-	profile.level = math.max(profile.level, 1)
-	profile.corruption = math.clamp(profile.corruption, 0, profile.maxCorruption)
-	profile.stamina = math.clamp(profile.stamina, 0, profile.maxStamina)
-	profile.tolerance = profile.level * 5
+	profile.currentWorld = world
+	profile.position = position
+end
+
+function PlayerData.getWorldPosition(profile: PlayerProfile): (string, { number })
+	--!strict
+	return profile.currentWorld, profile.position
+end
+
+-- ============================================================
+-- PUBLIC: Tasks & Progression
+-- ============================================================
+
+function PlayerData.completeTask(profile: PlayerProfile, taskId: string): boolean
+	--!strict
+	if table.find(profile.tasksCompleted, taskId) then
+		return false
+	end
 	
-	return profile
+	table.insert(profile.tasksCompleted, taskId)
+	return true
+end
+
+function PlayerData.isTaskCompleted(profile: PlayerProfile, taskId: string): boolean
+	--!strict
+	return table.find(profile.tasksCompleted, taskId) ~= nil
 end
 
 -- ============================================================
--- PUBLIC: Debug Helpers
+-- PUBLIC: Cleanup & Persistence
 -- ============================================================
 
-function PlayerData.printProfile(profile: PlayerProfile): ()
+function PlayerData.clearPlayerData(userId: number): ()
 	--!strict
-	print("\n=== PLAYER PROFILE ===")
-	print(string.format("Level: %d (XP: %d)", profile.level, profile.experience))
-	print(string.format("Corruption: %d/%d (Pool: %d)", profile.corruption, profile.maxCorruption, profile.corruptionPool))
-	print(string.format("Stamina: %d/%d", profile.stamina, profile.maxStamina))
-	print(string.format("Inventory: %d/%d slots, Weight: %.1f/%.1f", 
-		#profile.inventory, 
-		profile.inventorySlots,
-		profile.inventoryWeight,
-		profile.maxInventoryWeight
-	))
-	print(string.format("World: %s", profile.currentWorld))
-	print("=====================\n")
+	PlayerProfiles[userId] = nil
+end
+
+function PlayerData.getAllProfiles(): { [number]: PlayerProfile }
+	--!strict
+	return PlayerProfiles
 end
 
 return PlayerData
