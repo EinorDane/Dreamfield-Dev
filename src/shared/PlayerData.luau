@@ -90,6 +90,12 @@ export type PlayerProfile = {
 }
 
 -- ============================================================
+-- PRIVATE: Global Player Profiles Cache
+-- ============================================================
+
+local PlayerProfiles: { [number]: PlayerProfile } = {}
+
+-- ============================================================
 -- PRIVATE: Default Profile Factory
 -- ============================================================
 
@@ -163,6 +169,14 @@ end
 -- ============================================================
 -- PUBLIC: Profile Management
 -- ============================================================
+
+function PlayerData.getPlayerData(userId: number): PlayerProfile
+	--!strict
+	if not PlayerProfiles[userId] then
+		PlayerProfiles[userId] = createDefaultProfile()
+	end
+	return PlayerProfiles[userId]
+end
 
 function PlayerData.createProfile(): PlayerProfile
 	--!strict
@@ -299,7 +313,6 @@ function PlayerData.equipShard(profile: PlayerProfile, shard: Shard, slot: numbe
 	
 	return true
 end
-
 
 function PlayerData.unequipShard(profile: PlayerProfile, slot: number): Shard?
 	--!strict
