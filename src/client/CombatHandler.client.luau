@@ -263,7 +263,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		return
 	end
 	
-	if input.KeyCode == Enum.KeyCode.MouseButton1 then
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		handleAttack()
 	elseif input.KeyCode == Enum.KeyCode.F then
 		handleParry()
@@ -271,7 +271,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		handleBlockStart()
 	elseif input.KeyCode == Enum.KeyCode.Q then
 		handleDash()
-	elseif input.KeyCode == Enum.KeyCode.Lshift then
+	elseif input.KeyCode == Enum.KeyCode.LeftShift then
 		handleSprintStart()
 	end
 end)
@@ -279,7 +279,7 @@ end)
 UserInputService.InputEnded:Connect(function(input, gameProcessed)
 	if input.KeyCode == Enum.KeyCode.E then
 		handleBlockEnd()
-	elseif input.KeyCode == Enum.KeyCode.Lshift then
+	elseif input.KeyCode == Enum.KeyCode.LeftShift then
 		handleSprintEnd()
 	end
 end)
